@@ -5,14 +5,55 @@ AI検索、AI packet export、外部AI API 呼び出しは含めません。
 
 ## 配布用 exe
 
+### 作成手順
+
+ビルドは SearchViewer repo root で行います。SearchDB repo は `C:\Users\stell\source\repos\SearchDB` のように SearchViewer と同じ親フォルダに置いてください。PyInstaller spec は `..\SearchDB\src` から `searchdb` パッケージを同梱します。
+
+1. 前提ツールを確認します。
+
+```powershell
+py --version
+npm --version
+```
+
+2. 必要なら frontend 依存を取得します。社内環境などで npm の TLS 検証に失敗する場合だけ `npm_config_strict_ssl=false` を指定します。
+
+```powershell
+cd frontend
+$env:npm_config_strict_ssl = "false"  # 必要な環境だけ
+npm install
+cd ..
+```
+
+3. exe を作成します。
+
 ```powershell
 scripts\build_exe.ps1
 ```
+
+このスクリプトは次を順に実行します。
+
+- `py -m pip install -e .[dev]`
+- `npm run build` in `frontend`
+- `py -m PyInstaller --noconfirm packaging\searchviewer.spec`
+- `packaging\SearchViewerSettings.example.yaml` を `dist` にコピー
 
 生成物:
 
 - `dist\SearchViewer.exe`
 - `dist\SearchViewerSettings.example.yaml`
+
+4. smoke 確認を行います。
+
+```powershell
+dist\SearchViewer.exe --smoke --settings dist\SearchViewerSettings.example.yaml
+```
+
+実在する共有DBで起動前確認まで行う場合は、`SearchViewerSettings.yaml` を作成してからそのファイルを指定します。
+
+```powershell
+dist\SearchViewer.exe --smoke --settings path\to\SearchViewerSettings.yaml
+```
 
 配布時は `SearchViewer.exe` と同じフォルダに `SearchViewerSettings.yaml` を置きます。
 起動すると exe 内部で `127.0.0.1` の空きポートに Web アプリを立ち上げ、既定ブラウザを自動で開きます。小さな起動窓から URL コピー、ブラウザ再オープン、終了ができます。

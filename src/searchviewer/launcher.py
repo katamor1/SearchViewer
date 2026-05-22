@@ -63,6 +63,7 @@ class EmbeddedServer:
             port=self.port,
             log_level="warning",
             access_log=False,
+            log_config=None,
         )
         self.server = uvicorn.Server(config)
         self.thread = threading.Thread(target=self.server.run, name="SearchViewerServer", daemon=True)
