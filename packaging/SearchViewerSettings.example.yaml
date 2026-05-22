@@ -1,0 +1,16 @@
+# SearchViewer.exe と同じフォルダに SearchViewerSettings.yaml として配置してください。
+# 共有DBは起動時に各PCの local_cache_dir へコピーされ、検索履歴はローカルコピーに書き込まれます。
+
+shared_config_path: "\\\\server\\share\\SearchDB\\searchdb.local.yaml"
+shared_db_path: "\\\\server\\share\\SearchDB\\searchdb.sqlite3"
+
+# SearchDB config 内の db/curation/readiness 相対パスを解決する基準ディレクトリです。
+# 共有config内の該当パスがすべて絶対パスなら省略できます。
+# searchdb_working_dir: "\\\\server\\share\\SearchDB"
+
+# 省略時は %LOCALAPPDATA%\SearchViewer\cache を使います。
+# local_cache_dir: "%LOCALAPPDATA%\\SearchViewer\\cache"
+local_db_name: "searchdb.sqlite3"
+
+# always / if_missing / if_source_changed
+copy_policy: "if_source_changed"

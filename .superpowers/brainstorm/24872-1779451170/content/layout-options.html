@@ -1,0 +1,75 @@
+<h2>SearchViewer layout direction</h2>
+<p class="subtitle">Pick the first-screen layout for a local web viewer over SearchDB SQLite results.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Search-first split</div>
+        <div class="mockup-body">
+          <div class="mock-nav">DB: selected.sqlite3 | Status | Settings</div>
+          <div style="display:flex; gap:12px; margin-top:12px;">
+            <div class="mock-sidebar" style="width:34%;">
+              <input class="mock-input" value="送り速度 上限値" />
+              <button class="mock-button">Search</button>
+              <div class="placeholder" style="height:42px;">Filters: top_k, type, path, since</div>
+              <div class="placeholder" style="height:120px;">Recent runs</div>
+            </div>
+            <div class="mock-content" style="flex:1;">
+              <div class="placeholder" style="height:48px;">Rank 1 | score | reasons</div>
+              <div class="placeholder" style="height:48px;">Rank 2 | score | reasons</div>
+              <div class="placeholder" style="height:90px;">Selected snippet and document metadata</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Search-first split</h3>
+      <p>Best default for repeated search: left controls/history, right ranked results and detail preview.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Results table first</div>
+        <div class="mockup-body">
+          <div class="mock-nav">DB selector | Query | Search</div>
+          <div class="placeholder" style="height:56px; margin-top:12px;">Summary: run_id, result count, status</div>
+          <div class="placeholder" style="height:42px;">Table row: rank, path, final_score, reasons</div>
+          <div class="placeholder" style="height:42px;">Table row: rank, path, final_score, reasons</div>
+          <div class="placeholder" style="height:90px;">Expandable row snippet</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Results table first</h3>
+      <p>Best for scanning many rows, weaker for reading snippets and comparing query runs.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Corpus explorer</div>
+        <div class="mockup-body">
+          <div style="display:flex; gap:12px;">
+            <div class="mock-sidebar" style="width:32%;">
+              <div class="placeholder" style="height:160px;">Document tree / folders</div>
+            </div>
+            <div class="mock-content" style="flex:1;">
+              <input class="mock-input" value="Search within corpus" />
+              <div class="placeholder" style="height:60px;">Matching documents</div>
+              <div class="placeholder" style="height:96px;">Selected document chunks</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Corpus explorer</h3>
+      <p>Best if browsing documents matters as much as searching; heavier for the first AI-free MVP.</p>
+    </div>
+  </div>
+</div>
