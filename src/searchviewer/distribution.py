@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
+from json import JSONDecodeError
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,17 @@ class DistributionSettings:
         return self.local_cache_dir / self.local_db_name
 
 
+def _normalized_path_text(path: Path) -> str:
+    return os.path.normcase(os.fspath(_resolve_existing_or_lexical(path)))
+
+
+def _resolve_existing_or_lexical(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return Path(os.path.abspath(os.fspath(path)))
+
+
 def default_settings_path() -> Path:
     executable = Path(os.sys.executable).resolve()
     if getattr(os.sys, "frozen", False):
@@ -41,7 +54,7 @@ def _resolve_path(value: str, base_dir: Path) -> Path:
     path = Path(expanded)
     if not path.is_absolute():
         path = base_dir / path
-    return path.resolve()
+    return _resolve_existing_or_lexical(path)
 
 
 def _default_cache_dir() -> Path:
@@ -91,7 +104,7 @@ def load_distribution_settings(path: str | Path) -> DistributionSettings:
     if copy_policy not in COPY_POLICIES:
         raise ValueError(f"copy_policy must be one of: {', '.join(sorted(COPY_POLICIES))}")
 
-    return DistributionSettings(
+    settings = DistributionSettings(
         settings_path=settings_path,
         shared_config_path=_resolve_path(shared_config, base_dir),
         shared_db_path=_resolve_path(shared_db, base_dir),
@@ -100,6 +113,9 @@ def load_distribution_settings(path: str | Path) -> DistributionSettings:
         local_db_name=local_db_name,
         copy_policy=str(copy_policy),
     )
+    if _normalized_path_text(settings.local_db_path) == _normalized_path_text(settings.shared_db_path):
+        raise ValueError("local cached DB must not be the shared DB")
+    return settings
 
 
 def _metadata_path(local_db_path: Path) -> Path:
@@ -110,7 +126,10 @@ def read_cache_metadata(local_db_path: str | Path) -> dict[str, Any]:
     metadata_path = _metadata_path(Path(local_db_path))
     if not metadata_path.exists():
         return {}
-    return json.loads(metadata_path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (JSONDecodeError, OSError):
+        return {}
 
 
 def _write_cache_metadata(settings: DistributionSettings) -> dict[str, Any]:
@@ -161,11 +180,19 @@ def _copy_optional_wal(shared_db_path: Path, local_db_path: Path) -> None:
     local_wal = local_db_path.with_name(f"{local_db_path.name}-wal")
     if source_wal.exists() and source_wal.stat().st_size > 0:
         shutil.copy2(source_wal, local_wal)
+        _ensure_writable(local_wal)
+
+
+def _ensure_writable(path: Path) -> None:
+    if path.exists():
+        path.chmod(path.stat().st_mode | stat.S_IWRITE)
 
 
 def copy_shared_database_to_cache(settings: DistributionSettings) -> dict[str, Any]:
     if not settings.shared_db_path.exists():
         raise FileNotFoundError(f"shared_db_path not found: {settings.shared_db_path}")
+    if _normalized_path_text(settings.local_db_path) == _normalized_path_text(settings.shared_db_path):
+        raise ValueError("local cached DB must not be the shared DB")
     settings.local_cache_dir.mkdir(parents=True, exist_ok=True)
 
     copied = _needs_copy(settings)
@@ -173,10 +200,13 @@ def copy_shared_database_to_cache(settings: DistributionSettings) -> dict[str, A
         _remove_local_sidecars(settings.local_db_path)
         temp_path = settings.local_db_path.with_name(f"{settings.local_db_path.name}.tmp")
         shutil.copy2(settings.shared_db_path, temp_path)
+        _ensure_writable(temp_path)
         temp_path.replace(settings.local_db_path)
+        _ensure_writable(settings.local_db_path)
         _copy_optional_wal(settings.shared_db_path, settings.local_db_path)
         metadata = _write_cache_metadata(settings)
     else:
+        _ensure_writable(settings.local_db_path)
         metadata = read_cache_metadata(settings.local_db_path)
 
     return {

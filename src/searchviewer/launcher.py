@@ -37,6 +37,13 @@ def build_local_url(port: int) -> str:
     return f"http://127.0.0.1:{port}"
 
 
+def _path_exists_quietly(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
 class EmbeddedServer:
     def __init__(
         self,
@@ -110,6 +117,8 @@ def smoke_check(settings_path: str | Path | None = None) -> dict[str, Any]:
     if selected_settings_path.exists():
         try:
             settings = load_distribution_settings(selected_settings_path)
+            shared_config_exists = _path_exists_quietly(settings.shared_config_path)
+            shared_db_exists = _path_exists_quietly(settings.shared_db_path)
             payload["settings"].update(
                 {
                     "valid": True,
@@ -119,11 +128,11 @@ def smoke_check(settings_path: str | Path | None = None) -> dict[str, Any]:
                     if settings.searchdb_working_dir
                     else None,
                     "local_cached_db_path": str(settings.local_db_path),
-                    "shared_config_exists": settings.shared_config_path.exists(),
-                    "shared_db_exists": settings.shared_db_path.exists(),
+                    "shared_config_exists": shared_config_exists,
+                    "shared_db_exists": shared_db_exists,
                 }
             )
-            if settings.shared_config_path.exists() and settings.shared_db_path.exists():
+            if shared_config_exists and shared_db_exists:
                 from searchviewer.backend import ViewerBackend
 
                 backend = ViewerBackend(settings_path=selected_settings_path)

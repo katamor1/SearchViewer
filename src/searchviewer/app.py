@@ -56,6 +56,8 @@ def create_app(
     def search(request: SearchRequest) -> dict[str, Any]:
         try:
             return viewer.search(request.model_dump())
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except PermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except ValueError as exc:
@@ -63,12 +65,17 @@ def create_app(
 
     @app.get("/api/runs")
     def runs(limit: int = 20) -> list[dict[str, Any]]:
-        return viewer.recent_runs(limit=limit)
+        try:
+            return viewer.recent_runs(limit=limit)
+        except RuntimeError:
+            return []
 
     @app.get("/api/runs/{run_id}")
     def run(run_id: int) -> dict[str, Any]:
         try:
             return viewer.run_payload(run_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -76,6 +83,8 @@ def create_app(
     def chunk(chunk_id: int) -> dict[str, Any]:
         try:
             return viewer.chunk_detail(chunk_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -83,6 +92,8 @@ def create_app(
     def open_document(document_id: int) -> dict[str, Any]:
         try:
             return viewer.open_document(document_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except PermissionError as exc:

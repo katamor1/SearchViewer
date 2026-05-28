@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
+
+import pytest
 
 from searchviewer.launcher import EmbeddedServer, build_local_url, find_free_port, smoke_check
 
@@ -59,3 +62,25 @@ def test_smoke_check_reports_missing_settings(tmp_path) -> None:
     assert payload["ok"] is False
     assert payload["settings"]["exists"] is False
     assert payload["static"]["exists"] in {True, False}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC path parsing is Windows-specific")
+def test_smoke_check_parses_unc_style_settings_without_touching_share(tmp_path) -> None:
+    settings_path = tmp_path / "SearchViewerSettings.yaml"
+    settings_path.write_text(
+        "\n".join(
+            [
+                'shared_config_path: "\\\\\\\\server\\\\share\\\\SearchDB\\\\searchdb.local.yaml"',
+                'shared_db_path: "\\\\\\\\server\\\\share\\\\SearchDB\\\\searchdb.sqlite3"',
+                f'local_cache_dir: "{(tmp_path / "cache").as_posix()}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    payload = smoke_check(settings_path=settings_path)
+
+    assert payload["settings"]["valid"] is True
+    assert payload["settings"]["shared_config_exists"] is False
+    assert payload["settings"]["shared_db_exists"] is False

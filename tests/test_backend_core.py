@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,18 @@ SEARCHDB_ROOT = Path(__file__).resolve().parents[2] / "SearchDB"
 DEMO_ROOT = SEARCHDB_ROOT / "tests" / ".tmp" / "local-docs-demo"
 DEMO_CONFIG = DEMO_ROOT / "searchdb.local.yaml"
 DEMO_DB = DEMO_ROOT / "searchdb.sqlite3"
+
+
+def _backend_with_writable_demo_db(
+    tmp_path: Path,
+    *,
+    opener=None,
+) -> ViewerBackend:
+    db_path = tmp_path / "searchdb.sqlite3"
+    shutil.copy2(DEMO_DB, db_path)
+    backend = ViewerBackend(searchdb_root=SEARCHDB_ROOT, opener=opener)
+    backend.connect({"config_path": str(DEMO_CONFIG), "db_path": str(db_path)})
+    return backend
 
 
 def test_default_connection_uses_local_docs_demo_profile_when_available() -> None:
@@ -26,8 +39,8 @@ def test_default_connection_uses_local_docs_demo_profile_when_available() -> Non
     assert status["connection"]["summary"]["documents"] > 0
 
 
-def test_search_with_config_returns_ranked_results_and_run_metadata() -> None:
-    backend = ViewerBackend(searchdb_root=SEARCHDB_ROOT)
+def test_search_with_config_returns_ranked_results_and_run_metadata(tmp_path: Path) -> None:
+    backend = _backend_with_writable_demo_db(tmp_path)
 
     payload = backend.search(
         {
@@ -48,9 +61,11 @@ def test_search_with_config_returns_ranked_results_and_run_metadata() -> None:
     assert payload["results"][0]["ranking_reasons"]
 
 
-def test_db_only_search_is_allowed_but_warns_and_disables_file_links() -> None:
+def test_db_only_search_is_allowed_but_warns_and_disables_file_links(tmp_path: Path) -> None:
+    db_path = tmp_path / "searchdb.sqlite3"
+    shutil.copy2(DEMO_DB, db_path)
     backend = ViewerBackend(searchdb_root=SEARCHDB_ROOT)
-    connection = backend.connect({"db_path": str(DEMO_DB), "config_path": None})
+    connection = backend.connect({"db_path": str(db_path), "config_path": None})
 
     payload = backend.search({"query": "G71", "top_k": 3, "query_type": "spec_question"})
 
@@ -61,8 +76,8 @@ def test_db_only_search_is_allowed_but_warns_and_disables_file_links() -> None:
     assert payload["results"][0]["can_open_file"] is False
 
 
-def test_chunk_detail_includes_text_and_document_metadata() -> None:
-    backend = ViewerBackend(searchdb_root=SEARCHDB_ROOT)
+def test_chunk_detail_includes_text_and_document_metadata(tmp_path: Path) -> None:
+    backend = _backend_with_writable_demo_db(tmp_path)
     payload = backend.search({"query": "G71", "top_k": 1, "query_type": "spec_question"})
     chunk_id = payload["results"][0]["chunk_id"]
 
@@ -74,9 +89,9 @@ def test_chunk_detail_includes_text_and_document_metadata() -> None:
     assert detail["document"]["display_path"] == payload["results"][0]["display_path"]
 
 
-def test_open_document_resolves_only_known_documents_under_config_root(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_open_document_resolves_only_known_documents_under_config_root(tmp_path: Path) -> None:
     opened: list[str] = []
-    backend = ViewerBackend(searchdb_root=SEARCHDB_ROOT, opener=lambda path: opened.append(str(path)))
+    backend = _backend_with_writable_demo_db(tmp_path, opener=lambda path: opened.append(str(path)))
     payload = backend.search({"query": "G71", "top_k": 1, "query_type": "spec_question"})
     document_id = payload["results"][0]["document_id"]
 

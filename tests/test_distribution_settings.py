@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-import json
+import os
 import sqlite3
+import stat
 from pathlib import Path
+
+import pytest
 
 from searchviewer.distribution import (
     copy_shared_database_to_cache,
@@ -94,6 +97,67 @@ def test_copy_shared_database_to_cache_recopies_when_source_changes(tmp_path: Pa
     assert read_cache_metadata(settings.local_db_path)["shared_size"] == len(b"second-version")
 
 
+def test_load_distribution_settings_rejects_cache_path_equal_to_shared_db(tmp_path: Path) -> None:
+    shared_db = tmp_path / "shared.sqlite3"
+    settings_path = tmp_path / "SearchViewerSettings.yaml"
+    shared_db.write_bytes(DEMO_DB.read_bytes())
+    settings_path.write_text(
+        "\n".join(
+            [
+                f'shared_config_path: "{DEMO_CONFIG.as_posix()}"',
+                f'shared_db_path: "{shared_db.as_posix()}"',
+                f'local_cache_dir: "{tmp_path.as_posix()}"',
+                'local_db_name: "shared.sqlite3"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="local cached DB must not be the shared DB"):
+        load_distribution_settings(settings_path)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC path parsing is Windows-specific")
+def test_load_distribution_settings_accepts_unc_style_paths_without_touching_share(tmp_path: Path) -> None:
+    settings_path = tmp_path / "SearchViewerSettings.yaml"
+    settings_path.write_text(
+        "\n".join(
+            [
+                'shared_config_path: "\\\\\\\\server\\\\share\\\\SearchDB\\\\searchdb.local.yaml"',
+                'shared_db_path: "\\\\\\\\server\\\\share\\\\SearchDB\\\\searchdb.sqlite3"',
+                f'local_cache_dir: "{(tmp_path / "cache").as_posix()}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_distribution_settings(settings_path)
+
+    assert str(settings.shared_config_path).startswith("\\\\server\\share")
+    assert str(settings.shared_db_path).startswith("\\\\server\\share")
+
+
+def test_copy_shared_database_to_cache_recovers_from_corrupt_metadata(tmp_path: Path) -> None:
+    shared_db = tmp_path / "shared.sqlite3"
+    cache_dir = tmp_path / "cache"
+    settings_path = tmp_path / "SearchViewerSettings.yaml"
+    shared_db.write_bytes(DEMO_DB.read_bytes())
+    _write_settings(settings_path, shared_db, cache_dir)
+    settings = load_distribution_settings(settings_path)
+    copy_shared_database_to_cache(settings)
+    settings.local_db_path.with_name(f"{settings.local_db_path.name}.metadata.json").write_text(
+        "{not valid json",
+        encoding="utf-8",
+    )
+
+    status = copy_shared_database_to_cache(settings)
+
+    assert status["copied"] is True
+    assert read_cache_metadata(settings.local_db_path)["shared_db_path"] == str(shared_db.resolve())
+
+
 def test_local_cache_database_can_be_written_without_touching_shared_db(tmp_path: Path) -> None:
     shared_db = tmp_path / "shared.sqlite3"
     cache_dir = tmp_path / "cache"
@@ -110,3 +174,22 @@ def test_local_cache_database_can_be_written_without_touching_shared_db(tmp_path
         names = [row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
 
     assert "local_probe" not in names
+
+
+def test_copy_shared_database_to_cache_makes_read_only_source_copy_writable(tmp_path: Path) -> None:
+    shared_db = tmp_path / "shared.sqlite3"
+    cache_dir = tmp_path / "cache"
+    settings_path = tmp_path / "SearchViewerSettings.yaml"
+    shared_db.write_bytes(DEMO_DB.read_bytes())
+    shared_db.chmod(stat.S_IREAD)
+    try:
+        _write_settings(settings_path, shared_db, cache_dir)
+        settings = load_distribution_settings(settings_path)
+
+        copy_shared_database_to_cache(settings)
+
+        with sqlite3.connect(settings.local_db_path) as con:
+            con.execute("CREATE TABLE writable_probe(value TEXT)")
+            con.execute("INSERT INTO writable_probe(value) VALUES ('ok')")
+    finally:
+        shared_db.chmod(stat.S_IREAD | stat.S_IWRITE)

@@ -8,6 +8,7 @@ AI検索、AI packet export、外部AI API 呼び出しは含めません。
 ### 作成手順
 
 ビルドは SearchViewer repo root で行います。SearchDB repo は `C:\Users\stell\source\repos\SearchDB` のように SearchViewer と同じ親フォルダに置いてください。PyInstaller spec は `..\SearchDB\src` から `searchdb` パッケージを同梱します。
+SearchDB を別の場所に置く場合は、`-SearchDbSrc C:\path\to\SearchDB\src` を指定してください。
 
 1. 前提ツールを確認します。
 
@@ -31,12 +32,24 @@ cd ..
 scripts\build_exe.ps1
 ```
 
+SearchDB repo が同じ親フォルダにない場合:
+
+```powershell
+scripts\build_exe.ps1 -SearchDbSrc C:\path\to\SearchDB\src
+```
+
 このスクリプトは次を順に実行します。
 
-- `py -m pip install -e .[dev]`
+- repo内の `.venv-build` を作成し、そこで `py -m pip install -e .[dev]`
 - `npm run build` in `frontend`
-- `py -m PyInstaller --noconfirm packaging\searchviewer.spec`
+- `.venv-build\Scripts\python.exe -m PyInstaller --noconfirm packaging\searchviewer.spec`
 - `packaging\SearchViewerSettings.example.yaml` を `dist` にコピー
+
+Python / frontend 依存がすでに揃っている環境で再ビルドだけ行う場合は、次のように省略できます。
+
+```powershell
+scripts\build_exe.ps1 -SkipPythonInstall -SkipFrontendInstall
+```
 
 生成物:
 

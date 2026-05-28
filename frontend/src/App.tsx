@@ -272,8 +272,14 @@ export function App() {
 
   async function loadChunk(result: SearchResult) {
     setSelected(result);
-    const nextDetail = await api<ChunkDetail>(`/api/chunks/${result.chunk_id}`);
-    setDetail(nextDetail);
+    setMessage(null);
+    try {
+      const nextDetail = await api<ChunkDetail>(`/api/chunks/${result.chunk_id}`);
+      setDetail(nextDetail);
+    } catch (error) {
+      setDetail(null);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
   }
 
   async function openDocument(result: SearchResult) {
