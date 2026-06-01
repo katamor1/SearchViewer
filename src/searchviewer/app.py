@@ -1,15 +1,30 @@
 from __future__ import annotations
 
+import json
+import logging
+import time
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from searchviewer.backend import ViewerBackend
-from searchviewer.frontend import static_dir
+from searchviewer.diagnostics import (
+    CLIENT_LOG_MAX_BYTES,
+    json_for_log,
+    sanitize_client_log_payload,
+)
+from searchviewer.frontend import inspect_static_bundle, static_dir, static_error_html
+
+
+LOGGER = logging.getLogger("searchviewer.app")
+CLIENT_LOGGER = logging.getLogger("searchviewer.client")
+LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
 class ConnectRequest(BaseModel):
@@ -41,9 +56,68 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def log_request(request: Request, call_next):
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (time.perf_counter() - started) * 1000
+            LOGGER.exception(
+                "request_failed method=%s path=%s duration_ms=%.1f",
+                request.method,
+                request.url.path,
+                duration_ms,
+            )
+            raise
+        duration_ms = (time.perf_counter() - started) * 1000
+        LOGGER.info(
+            "request method=%s path=%s status=%s duration_ms=%.1f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+        return response
+
     @app.get("/api/status")
     def status() -> dict[str, Any]:
         return viewer.status()
+
+    @app.post("/api/client-log", status_code=204)
+    async def client_log(request: Request) -> Response:
+        host = request.client.host if request.client else ""
+        if host not in LOCAL_CLIENT_HOSTS:
+            raise HTTPException(status_code=403, detail="client logging is only available locally")
+
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > CLIENT_LOG_MAX_BYTES:
+                    raise HTTPException(status_code=413, detail="client log payload is too large")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid content-length") from None
+
+        body = await request.body()
+        if len(body) > CLIENT_LOG_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="client log payload is too large")
+
+        payload: Any
+        content_type = request.headers.get("content-type", "")
+        text = body.decode("utf-8", errors="replace")
+        if "application/json" in content_type:
+            try:
+                payload = json.loads(text or "{}")
+            except JSONDecodeError:
+                payload = {"type": "invalid_json"}
+        else:
+            try:
+                payload = json.loads(text)
+            except JSONDecodeError:
+                payload = {"type": "client_text", "message": text[:500]}
+
+        CLIENT_LOGGER.info("client_event %s", json_for_log(sanitize_client_log_payload(payload)))
+        return Response(status_code=204)
 
     @app.post("/api/connect")
     def connect(request: ConnectRequest) -> dict[str, Any]:
@@ -100,8 +174,20 @@ def create_app(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     dist_dir = static_dir()
-    if dist_dir.exists():
+    static_report = inspect_static_bundle(dist_dir)
+    app.state.static_report = static_report
+    LOGGER.info("static_bundle %s", json_for_log(static_report))
+    if static_report["ok"]:
         app.mount("/", StaticFiles(directory=dist_dir, html=True), name="static")
+    else:
+        LOGGER.error("static_bundle_incomplete %s", json_for_log(static_report))
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def static_unavailable(full_path: str) -> HTMLResponse:
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="not found")
+            return HTMLResponse(static_error_html(static_report), status_code=503)
+
     return app
 
 

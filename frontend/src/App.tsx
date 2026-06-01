@@ -140,6 +140,19 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function reportClientEvent(payload: Record<string, unknown>) {
+  if (window.__searchViewerClientLog) {
+    window.__searchViewerClientLog(payload);
+    return;
+  }
+  fetch("/api/client-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 function formatScore(value: number): string {
   return value.toFixed(3);
 }
@@ -183,11 +196,21 @@ export function App() {
   }, []);
 
   async function refreshStatus() {
-    const nextStatus = await api<StatusPayload>("/api/status");
-    setStatus(nextStatus);
-    setConnection(nextStatus.connection);
-    setConfigPath(nextStatus.connection.config_path ?? nextStatus.default_profile.config_path);
-    setDbPath(nextStatus.connection.db_path ?? nextStatus.default_profile.db_path);
+    try {
+      const nextStatus = await api<StatusPayload>("/api/status");
+      setStatus(nextStatus);
+      setConnection(nextStatus.connection);
+      setConfigPath(nextStatus.connection.config_path ?? nextStatus.default_profile.config_path);
+      setDbPath(nextStatus.connection.db_path ?? nextStatus.default_profile.db_path);
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      setMessage(errorText);
+      reportClientEvent({
+        type: "initial_status_error",
+        source: "refreshStatus",
+        message: errorText,
+      });
+    }
   }
 
   async function refreshRuns() {

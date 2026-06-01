@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import socket
 import sys
 import threading
@@ -13,8 +15,12 @@ from typing import Any, Callable
 import uvicorn
 
 from searchviewer.app import create_app
+from searchviewer.diagnostics import configure_logging, json_for_log, make_log_path
 from searchviewer.distribution import default_settings_path, load_distribution_settings
-from searchviewer.frontend import static_dir
+from searchviewer.frontend import inspect_static_bundle, static_dir
+
+
+LOGGER = logging.getLogger("searchviewer.launcher")
 
 
 def _ensure_source_searchdb_path() -> None:
@@ -90,18 +96,36 @@ class EmbeddedServer:
         return False
 
 
+def start_server_and_open_browser(
+    server: Any,
+    *,
+    open_browser: Callable[[str], Any] = webbrowser.open,
+) -> bool:
+    try:
+        server.start()
+    except Exception:
+        LOGGER.exception("embedded_server_start_failed url=%s", getattr(server, "url", "<unknown>"))
+        return False
+
+    started = bool(server.wait_until_started())
+    LOGGER.info("embedded_server_started=%s url=%s", started, server.url)
+    if started:
+        open_browser(server.url)
+    else:
+        LOGGER.error("embedded_server_start_timeout url=%s", server.url)
+    return started
+
+
 def smoke_check(settings_path: str | Path | None = None) -> dict[str, Any]:
     selected_settings_path = Path(settings_path) if settings_path is not None else default_settings_path()
+    static_report = inspect_static_bundle(static_dir())
     payload: dict[str, Any] = {
         "ok": True,
         "settings": {
             "path": str(selected_settings_path.resolve()),
             "exists": selected_settings_path.exists(),
         },
-        "static": {
-            "path": str(static_dir()),
-            "exists": static_dir().exists(),
-        },
+        "static": static_report,
         "searchdb_importable": False,
     }
 
@@ -151,37 +175,65 @@ def smoke_check(settings_path: str | Path | None = None) -> dict[str, Any]:
     else:
         payload["ok"] = False
 
-    if not payload["static"]["exists"]:
+    if not payload["static"]["ok"]:
         payload["ok"] = False
+    LOGGER.info("smoke_check %s", json_for_log(payload))
     return payload
 
 
-def _run_gui(settings_path: Path) -> int:
+def _run_gui(
+    settings_path: Path,
+    *,
+    log_dir: str | Path | None = None,
+    log_path: str | Path | None = None,
+) -> int:
     import tkinter as tk
     from tkinter import messagebox
 
+    selected_log_path = Path(log_path).resolve() if log_path is not None else configure_logging(make_log_path(log_dir))
     port = find_free_port()
+    url = build_local_url(port)
+    static_report = inspect_static_bundle(static_dir())
+    LOGGER.info(
+        "launcher_start %s",
+        json_for_log(
+            {
+                "sys_frozen": bool(getattr(sys, "frozen", False)),
+                "sys_executable": sys.executable,
+                "meipass": getattr(sys, "_MEIPASS", None),
+                "cwd": str(Path.cwd()),
+                "settings_path": str(settings_path),
+                "settings_exists": settings_path.exists(),
+                "static": static_report,
+                "port": port,
+                "url": url,
+                "log_path": str(selected_log_path),
+            }
+        ),
+    )
     app_factory = lambda: create_app(settings_path=settings_path)
     server = EmbeddedServer(app_factory=app_factory, port=port)
-    server.start()
-    server.wait_until_started()
-    url = server.url
-    webbrowser.open(url)
+    started = start_server_and_open_browser(server)
 
     root = tk.Tk()
     root.title("SearchViewer")
-    root.geometry("460x180")
+    root.geometry("620x240")
     root.resizable(False, False)
 
-    status_text = "SearchViewer を起動しました。"
-    if not settings_path.exists():
+    if not started:
+        status_text = "SearchViewer の起動に失敗しました。ログを確認してください。"
+    elif not settings_path.exists():
         status_text = "設定ファイルが見つかりません。画面で接続設定を確認してください。"
+    else:
+        status_text = "SearchViewer を起動しました。"
     status_var = tk.StringVar(value=status_text)
     url_var = tk.StringVar(value=url)
     settings_var = tk.StringVar(value=f"設定: {settings_path}")
+    log_var = tk.StringVar(value=f"ログ: {selected_log_path}")
 
     def open_browser() -> None:
-        webbrowser.open(url)
+        if started:
+            webbrowser.open(url)
 
     def stop_and_close() -> None:
         server.stop()
@@ -192,14 +244,31 @@ def _run_gui(settings_path: Path) -> int:
         root.clipboard_append(url)
         status_var.set("URLをクリップボードにコピーしました。")
 
+    def copy_log_path() -> None:
+        root.clipboard_clear()
+        root.clipboard_append(str(selected_log_path))
+        status_var.set("ログパスをクリップボードにコピーしました。")
+
+    def open_log_folder() -> None:
+        os.startfile(str(selected_log_path.parent))  # type: ignore[attr-defined]
+
     tk.Label(root, textvariable=status_var, anchor="w").pack(fill="x", padx=14, pady=(14, 4))
     tk.Label(root, textvariable=url_var, anchor="w", fg="#155f85").pack(fill="x", padx=14, pady=4)
     tk.Label(root, textvariable=settings_var, anchor="w").pack(fill="x", padx=14, pady=4)
+    tk.Label(root, textvariable=log_var, anchor="w").pack(fill="x", padx=14, pady=4)
 
     buttons = tk.Frame(root)
-    buttons.pack(fill="x", padx=14, pady=16)
-    tk.Button(buttons, text="ブラウザを開く", command=open_browser, width=14).pack(side="left", padx=(0, 8))
+    buttons.pack(fill="x", padx=14, pady=12)
+    tk.Button(
+        buttons,
+        text="ブラウザを開く",
+        command=open_browser,
+        width=14,
+        state=("normal" if started else "disabled"),
+    ).pack(side="left", padx=(0, 8))
     tk.Button(buttons, text="URLをコピー", command=copy_url, width=12).pack(side="left", padx=(0, 8))
+    tk.Button(buttons, text="ログフォルダ", command=open_log_folder, width=12).pack(side="left", padx=(0, 8))
+    tk.Button(buttons, text="ログパス", command=copy_log_path, width=10).pack(side="left", padx=(0, 8))
     tk.Button(buttons, text="終了", command=stop_and_close, width=10).pack(side="right")
 
     def on_close() -> None:
@@ -216,15 +285,37 @@ def _run_gui(settings_path: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="SearchViewer")
     parser.add_argument("--settings", default=None)
+    parser.add_argument("--log-dir", default=None)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--smoke-output", default=None)
     args = parser.parse_args(argv)
 
     settings_path = Path(args.settings).resolve() if args.settings else default_settings_path()
+    log_path = configure_logging(make_log_path(args.log_dir))
+    LOGGER.info(
+        "main_start %s",
+        json_for_log(
+            {
+                "smoke": bool(args.smoke),
+                "settings_path": str(settings_path),
+                "smoke_output": args.smoke_output,
+                "log_path": str(log_path),
+            }
+        ),
+    )
     if args.smoke:
         payload = smoke_check(settings_path=settings_path)
+        payload["log"] = {"path": str(log_path)}
+        if args.smoke_output:
+            output_path = Path(args.smoke_output).expanduser().resolve()
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return 0 if payload["ok"] else 1
-    return _run_gui(settings_path)
+    return _run_gui(settings_path, log_dir=args.log_dir, log_path=log_path)
 
 
 if __name__ == "__main__":

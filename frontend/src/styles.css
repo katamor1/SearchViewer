@@ -13,6 +13,24 @@ body {
   margin: 0;
 }
 
+.startup-error {
+  max-width: 760px;
+  margin: 48px auto;
+  padding: 24px;
+  color: #1b2733;
+}
+
+.startup-error h1 {
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+
+.startup-error p {
+  margin: 0;
+  color: #5d6975;
+  overflow-wrap: anywhere;
+}
+
 button,
 input,
 select {

@@ -5,7 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from searchviewer.launcher import EmbeddedServer, build_local_url, find_free_port, smoke_check
+from searchviewer.launcher import (
+    EmbeddedServer,
+    build_local_url,
+    find_free_port,
+    smoke_check,
+    start_server_and_open_browser,
+)
 
 
 def test_find_free_port_and_build_local_url() -> None:
@@ -56,12 +62,31 @@ def test_embedded_server_disables_uvicorn_log_config(monkeypatch) -> None:
     assert captured["access_log"] is False
 
 
+def test_start_server_timeout_does_not_open_browser() -> None:
+    opened: list[str] = []
+
+    class FakeServer:
+        url = "http://127.0.0.1:12345"
+
+        def start(self) -> None:
+            return None
+
+        def wait_until_started(self) -> bool:
+            return False
+
+    started = start_server_and_open_browser(FakeServer(), open_browser=opened.append)
+
+    assert started is False
+    assert opened == []
+
+
 def test_smoke_check_reports_missing_settings(tmp_path) -> None:
     payload = smoke_check(settings_path=tmp_path / "missing.yaml")
 
     assert payload["ok"] is False
     assert payload["settings"]["exists"] is False
     assert payload["static"]["exists"] in {True, False}
+    assert payload["static"]["index_exists"] in {True, False}
 
 
 @pytest.mark.skipif(os.name != "nt", reason="UNC path parsing is Windows-specific")

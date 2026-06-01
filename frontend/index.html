@@ -4,6 +4,57 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SearchViewer</title>
+    <script>
+      (function () {
+        function sendClientLog(payload) {
+          try {
+            var body = JSON.stringify(payload);
+            if (navigator.sendBeacon) {
+              var blob = new Blob([body], { type: "application/json" });
+              navigator.sendBeacon("/api/client-log", blob);
+              return;
+            }
+            fetch("/api/client-log", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: body,
+              keepalive: true,
+            }).catch(function () {});
+          } catch (error) {}
+        }
+        window.__searchViewerClientLog = sendClientLog;
+        window.addEventListener(
+          "error",
+          function (event) {
+            var target = event.target;
+            if (target && target !== window && (target.src || target.href)) {
+              sendClientLog({
+                type: "resource_error",
+                tagName: target.tagName,
+                src: target.src,
+                href: target.href,
+              });
+              return;
+            }
+            sendClientLog({
+              type: "window_error",
+              message: event.message,
+              filename: event.filename,
+              lineno: event.lineno,
+              colno: event.colno,
+            });
+          },
+          true
+        );
+        window.addEventListener("unhandledrejection", function (event) {
+          var reason = event.reason;
+          sendClientLog({
+            type: "unhandled_rejection",
+            message: String((reason && reason.message) || reason),
+          });
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

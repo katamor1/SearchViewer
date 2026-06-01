@@ -70,6 +70,12 @@ dist\SearchViewer.exe --smoke --settings path\to\SearchViewerSettings.yaml
 
 配布時は `SearchViewer.exe` と同じフォルダに `SearchViewerSettings.yaml` を置きます。
 起動すると exe 内部で `127.0.0.1` の空きポートに Web アプリを立ち上げ、既定ブラウザを自動で開きます。小さな起動窓から URL コピー、ブラウザ再オープン、終了ができます。
+起動時の診断ログは既定で `%LOCALAPPDATA%\SearchViewer\logs\SearchViewer-YYYYMMDD-HHMMSS.log` に保存されます。起動窓からログフォルダを開く、またはログパスをコピーできます。
+ログ保存先を変える場合は `--log-dir` を指定します。
+
+```powershell
+dist\SearchViewer.exe --log-dir C:\temp\SearchViewerLogs
+```
 
 `SearchViewerSettings.yaml` の主な項目:
 
@@ -110,6 +116,11 @@ dist\SearchViewer.exe --smoke --settings packaging\SearchViewerSettings.example.
 ```
 
 `--smoke` は GUI を出さず、静的ファイル同梱、SearchDB import、設定ファイル parse を確認します。
+GUI exe では標準出力が見えないため、結果をファイルに残す場合は `--smoke-output` を指定します。
+
+```powershell
+dist\SearchViewer.exe --smoke --settings dist\SearchViewerSettings.yaml --smoke-output C:\temp\searchviewer-smoke.json
+```
 
 ## 既定動作
 
