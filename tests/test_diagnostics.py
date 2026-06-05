@@ -76,6 +76,21 @@ def test_create_app_serves_static_assets_when_bundle_is_complete(tmp_path: Path,
     assert status.status_code == 200
 
 
+def test_create_app_serves_javascript_with_executable_mime_type_when_windows_mapping_is_wrong(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_static_bundle(tmp_path)
+    monkeypatch.setattr("searchviewer.app.static_dir", lambda: tmp_path)
+    monkeypatch.setattr("starlette.responses.guess_type", lambda path: ("text/plain", None))
+
+    client = TestClient(create_app(backend=_backend(tmp_path)))
+    response = client.get("/assets/app.js")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/javascript")
+
+
 def test_create_app_returns_diagnostic_page_when_static_bundle_is_incomplete(tmp_path: Path, monkeypatch) -> None:
     _write_static_bundle(tmp_path, include_css=False)
     monkeypatch.setattr("searchviewer.app.static_dir", lambda: tmp_path)

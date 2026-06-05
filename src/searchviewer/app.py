@@ -12,6 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.datastructures import Headers
+from starlette.responses import FileResponse
+from starlette.staticfiles import NotModifiedResponse
 
 from searchviewer.backend import ViewerBackend
 from searchviewer.diagnostics import (
@@ -25,6 +28,32 @@ from searchviewer.frontend import inspect_static_bundle, static_dir, static_erro
 LOGGER = logging.getLogger("searchviewer.app")
 CLIENT_LOGGER = logging.getLogger("searchviewer.client")
 LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+STATIC_MEDIA_TYPES = {
+    ".css": "text/css",
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+}
+
+
+class SearchViewerStaticFiles(StaticFiles):
+    def file_response(
+        self,
+        full_path,
+        stat_result,
+        scope,
+        status_code: int = 200,
+    ) -> Response:
+        request_headers = Headers(scope=scope)
+        media_type = STATIC_MEDIA_TYPES.get(Path(full_path).suffix.lower())
+        response = FileResponse(
+            full_path,
+            status_code=status_code,
+            stat_result=stat_result,
+            media_type=media_type,
+        )
+        if self.is_not_modified(response.headers, request_headers):
+            return NotModifiedResponse(response.headers)
+        return response
 
 
 class ConnectRequest(BaseModel):
@@ -178,7 +207,7 @@ def create_app(
     app.state.static_report = static_report
     LOGGER.info("static_bundle %s", json_for_log(static_report))
     if static_report["ok"]:
-        app.mount("/", StaticFiles(directory=dist_dir, html=True), name="static")
+        app.mount("/", SearchViewerStaticFiles(directory=dist_dir, html=True), name="static")
     else:
         LOGGER.error("static_bundle_incomplete %s", json_for_log(static_report))
 
